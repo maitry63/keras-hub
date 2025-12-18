@@ -17,8 +17,7 @@ class ModernBertPreprocessor(Preprocessor):
             padding="max_length",
             truncation=True,
             max_length=self.sequence_length,
-            return_tensors="tf",
-            return_tensors= "ops",
+            return_tensors= "tf",
         )
         input_ids = outputs["input_ids"]
         attention_mask = outputs["attention_mask"]
