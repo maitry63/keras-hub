@@ -10,21 +10,21 @@ from keras_hub.src.models.backbone import Backbone
 class ModernBertBackbone(Backbone):
     """ModernBERT backbone model.
 
-    ModernBERT is a modernized version of BERT that incorporates architectural 
-    advancements such as Rotary Positional Embeddings (RoPE), RMSNorm, and 
-    optimized transformer layers for improved efficiency and performance.
+    ModernBERT is a modernized BERT architecture featuring Rotary Positional 
+    Embeddings (RoPE), GeGLU activations, RMSNorm, and Alternating Attention 
+    (mixing global and local sliding window attention).
 
     Args:
         vocabulary_size: int. The size of the token vocabulary.
         hidden_dim: int. The size of the transformer hidden state.
-        intermediate_dim: int. The output dimension of the first Dense layer in 
-            a three-layer feedforward network for each transformer block.
+        intermediate_dim: int. The output dimension of the GeGLU MLP.
         num_layers: int. The number of transformer layers.
-        num_heads: int. The number of attention heads for each transformer layer.
-        dropout: float. Dropout probability for the embedding and transformer layers.
-        rotary_max_wavelength: int. The maximum angular wavelength for the 
-            rotary embedding.
-        layer_norm_epsilon: float. Epsilon for the layer normalization layers.
+        num_heads: int. The number of attention heads.
+        dropout: float. Dropout probability.
+        local_attention_window: int. The window size for local attention.
+        global_attn_every_n_layers: int. Frequency of global attention layers.
+        rotary_max_wavelength: int. The maximum wavelength for RoPE.
+        layer_norm_epsilon: float. Epsilon for the RMSNorm layers.
         dtype: string or `keras.mixed_precision.DTypePolicy`. The dtype to use 
             for model computations and weights.
         **kwargs: Standard `keras_hub.models.Backbone` arguments.
@@ -35,7 +35,6 @@ class ModernBertBackbone(Backbone):
         "token_ids": keras.ops.ones((2, 128), dtype="int32"),
         "padding_mask": keras.ops.ones((2, 128), dtype="int32"),
     }
-    # Pretrained ModernBERT
     model = keras_hub.models.ModernBertBackbone(
         vocabulary_size=50368,
         hidden_dim=768,
@@ -55,20 +54,14 @@ class ModernBertBackbone(Backbone):
         num_layers,
         num_heads,
         dropout=0.0,
+        local_attention_window=128,
+        global_attn_every_n_layers=3,
         rotary_max_wavelength=160000,
         layer_norm_epsilon=1e-5,
         dtype=None,
-        **kwargs,) -> None:
-
-        self.vocabulary_size = vocabulary_size
-        self.hidden_dim = hidden_dim
-        self.intermediate_dim = intermediate_dim
-        self.num_layers = num_layers
-        self.num_heads = num_heads
-        self.dropout = dropout
-        self.rotary_max_wavelength = rotary_max_wavelength
-        self.layer_norm_epsilon = layer_norm_epsilon
-
+        **kwargs,
+    ):
+        # Layer Definitions
         self.token_embedding = ReversibleEmbedding(
             input_dim=vocabulary_size,
             output_dim=hidden_dim,
@@ -83,6 +76,7 @@ class ModernBertBackbone(Backbone):
             name="rotary_embedding",
         )
 
+        # RMSNorm
         self.embeddings_layer_norm = layers.LayerNormalization(
             epsilon=layer_norm_epsilon,
             rms_scaling=True,
@@ -90,26 +84,34 @@ class ModernBertBackbone(Backbone):
             name="embeddings_layer_norm",
         )
 
-        self.transformer_layers = [
-            ModernBertEncoderLayer(
-                hidden_size=hidden_dim,
-                intermediate_size=intermediate_dim,
-                num_heads=num_heads,
-                rotary_embedding=self.rotary_embedding,
-                dropout=dropout,
-                dtype=dtype,
-                name=f"transformer_layer_{i}",
+        self.transformer_layers = []
+        for i in range(num_layers):
+            # Alternating Attention Logic:
+            # Every n-th layer is Global, others are Local.
+            is_global = (i + 1) % global_attn_every_n_layers == 0
+            current_window = None if is_global else local_attention_window
+            
+            self.transformer_layers.append(
+                ModernBertEncoderLayer(
+                    hidden_dim=hidden_dim,
+                    intermediate_dim=intermediate_dim,
+                    num_heads=num_heads,
+                    rotary_embedding=self.rotary_embedding,
+                    dropout=dropout,
+                    local_attention_window=current_window,
+                    layer_norm_epsilon=layer_norm_epsilon,
+                    dtype=dtype,
+                    name=f"transformer_layer_{i}",
+                )
             )
-            for i in range(num_layers)
-        ]
+            self.final_norm = layers.LayerNormalization(
+                epsilon=layer_norm_epsilon,
+                rms_scaling=True,
+                dtype=dtype,
+                name="final_norm",
+            )
 
-        self.final_norm = layers.LayerNormalization(
-            epsilon=layer_norm_epsilon,
-            rms_scaling=True,
-            dtype=dtype,
-            name="final_layernorm",
-        )
-
+        # Functional API Call
         token_id_input = keras.Input(shape=(None,), dtype="int32", name="token_ids")
         padding_mask_input = keras.Input(shape=(None,), dtype="int32", name="padding_mask")
 
@@ -131,12 +133,15 @@ class ModernBertBackbone(Backbone):
             **kwargs,
         )
 
+        # Internal Attributes
         self.vocabulary_size = vocabulary_size
         self.hidden_dim = hidden_dim
         self.intermediate_dim = intermediate_dim
         self.num_layers = num_layers
         self.num_heads = num_heads
         self.dropout = dropout
+        self.local_attention_window = local_attention_window
+        self.global_attn_every_n_layers = global_attn_every_n_layers
         self.rotary_max_wavelength = rotary_max_wavelength
         self.layer_norm_epsilon = layer_norm_epsilon
 
@@ -150,6 +155,8 @@ class ModernBertBackbone(Backbone):
                 "num_layers": self.num_layers,
                 "num_heads": self.num_heads,
                 "dropout": self.dropout,
+                "local_attention_window": self.local_attention_window,
+                "global_attn_every_n_layers": self.global_attn_every_n_layers,
                 "rotary_max_wavelength": self.rotary_max_wavelength,
                 "layer_norm_epsilon": self.layer_norm_epsilon,
             }
