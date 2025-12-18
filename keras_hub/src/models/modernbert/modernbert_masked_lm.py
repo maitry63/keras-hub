@@ -9,8 +9,7 @@ class ModernBertMaskedLM(Task):
     def __init__(self, backbone, preprocessor=None, **kwargs):
         self.backbone = backbone
         self.preprocessor = preprocessor
-        
-        # Use .output (singular) instead of .outputs
+
         sequence_output = backbone.output
         
         # Get the embedding layer for weight tying
@@ -50,8 +49,10 @@ class ModernBertMaskedLM(Task):
 
     def get_config(self):
         config = super().get_config()
-        config.update({
-            "backbone": self.backbone,
-            "preprocessor": self.preprocessor,
-        })
+        config.update(
+            {
+                "backbone": keras.saving.serialize_keras_object(self.backbone),
+                "preprocessor": keras.saving.serialize_keras_object(self.preprocessor),
+            }
+        )
         return config
