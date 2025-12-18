@@ -5,28 +5,26 @@ from keras_hub.src.utils.keras_utils import gelu_approximate
 
 class ModernBertMLP(layers.Layer):
     """ModernBERT MLP block using Gated Linear Units (GeGLU)."""
-    def __init__(self, hidden_size, intermediate_size, activation=gelu_approximate, **kwargs):
+    def __init__(self, hidden_dim, intermediate_dim, activation=gelu_approximate, **kwargs):
         super().__init__(**kwargs)
-        self.wi_0 = layers.Dense(intermediate_size, name="wi_0")
-        self.wi_1 = layers.Dense(intermediate_size, name="wi_1")
-        self.wo = layers.Dense(hidden_size, name="wo")
+        self.wi_0 = layers.Dense(intermediate_dim, name="wi_0")
+        self.wi_1 = layers.Dense(intermediate_dim, name="wi_1")
+        self.wo = layers.Dense(hidden_dim, name="wo")
         self.activation = activation
-        
 
     def call(self, x):
         return self.wo(self.activation(self.wi_0(x)) * self.wi_1(x))
 
 class ModernBertAttention(layers.Layer):
     """ModernBERT Attention with Rotary Positional Embeddings (RoPE)."""
-    def __init__(self, hidden_size, num_heads, head_dim, rotary_embedding=None, **kwargs):
+    def __init__(self, hidden_dim, num_heads, rotary_embedding=None, **kwargs):
         super().__init__(**kwargs)
         self.num_heads = num_heads
-        self.hidden_size = hidden_size
-        self.head_dim = head_dim
-        self.key_dim = head_dim
+        self.hidden_dim = hidden_dim
+        self.head_dim = hidden_dim // num_heads
         self.rotary_embedding = rotary_embedding
-        self.qkv = layers.Dense(hidden_size * 3, name="qkv")
-        self.out_dense = layers.Dense(hidden_size, name="out_dense")
+        self.qkv = layers.Dense(hidden_dim * 3, name="qkv")
+        self.out_dense = layers.Dense(hidden_dim, name="out_dense")
 
     def call(self, x, padding_mask=None):
         batch_size = ops.shape(x)[0]
@@ -46,8 +44,6 @@ class ModernBertAttention(layers.Layer):
 
         scale = ops.cast(ops.sqrt(ops.cast(self.key_dim, x.dtype)), x.dtype)
         scores = ops.matmul(q, k) / scale
-
-        # scores = ops.matmul(q, k) / ops.sqrt(ops.cast(self.head_dim, x.dtype))
     
         if padding_mask is not None:
             m = ops.cast(padding_mask[:, None, None, :], scores.dtype)
@@ -58,7 +54,7 @@ class ModernBertAttention(layers.Layer):
         out = ops.matmul(attn, v)
         out = ops.transpose(out, (0, 2, 1, 3))
         # Flatten heads and head_dim back into hidden_dim
-        out = ops.reshape(out, (batch_size, seq_len, self.hidden_size))
+        out = ops.reshape(out, (batch_size, seq_len, self.hidden_dim))
     
         return self.out_dense(out)
 
@@ -71,29 +67,29 @@ class ModernBertEncoderLayer(layers.Layer):
     3. Gated Linear Unit (GeGLU) activation in the MLP.
 
     Args:
-        hidden_size: int. Dimensionality of the encoder layer.
-        intermediate_size: int. Dimensionality of the MLP intermediate layer.
+        hidden_dim: int. Dimensionality of the encoder layer.
+        intermediate_dim: int. Dimensionality of the MLP intermediate layer.
         num_heads: int. Number of attention heads.
         rotary_embedding: `RotaryEmbedding` layer. Optional rotary positional encoding.
         activation: function. Activation function for the MLP.
         layer_norm_epsilon: float. Epsilon for the LayerNorm layers.
     """
-    def __init__(self, hidden_size, intermediate_size, num_heads, 
+    def __init__(self, hidden_dim, intermediate_dim, num_heads, 
                  rotary_embedding=None,
                  dropout=0.0, 
                  activation=gelu_approximate, layer_norm_epsilon=1e-5, **kwargs):
         super().__init__(**kwargs)
         self.attn_norm = layers.LayerNormalization(epsilon=layer_norm_epsilon, rms_scaling=True)
-        self.attn = ModernBertAttention(hidden_size, num_heads, rotary_embedding)
+        self.attn = ModernBertAttention(hidden_dim, num_heads, rotary_embedding)
         self.mlp_norm = layers.LayerNormalization(epsilon=layer_norm_epsilon, rms_scaling=True)
-        self.mlp = ModernBertMLP(hidden_size, intermediate_size, activation=activation)
+        self.mlp = ModernBertMLP(hidden_dim, intermediate_dim, activation=activation)
         self.dropout_layer = layers.Dropout(dropout)
-
+    
     def call(self, x, padding_mask=None):
         # Attention Residual path
-        x = x + self.attn(self.attn_norm(x), padding_mask=padding_mask)
+        x = x + self.dropout_layer(self.attn(self.attn_norm(x), padding_mask=padding_mask))
         # MLP Residual path
-        x = x + self.mlp(self.mlp_norm(x))
+        x = x + self.dropout_layer(self.mlp(self.mlp_norm(x)))
         return x
 
     def compute_output_shape(self, input_shape):
