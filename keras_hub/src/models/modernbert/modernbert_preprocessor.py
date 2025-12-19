@@ -2,7 +2,7 @@ import keras
 from keras import ops
 from keras_hub.src.models.preprocessor import Preprocessor
 from keras_hub.src.api_export import keras_hub_export
-from keras_hub.src.layers.modeling.packer import Packer
+from keras_hub.src.layers.preprocessing import start_end_packer
 
 @keras_hub_export("keras_hub.models.ModernBertPreprocessor")
 class ModernBertPreprocessor(Preprocessor):
@@ -27,7 +27,7 @@ class ModernBertPreprocessor(Preprocessor):
     ):
         super().__init__(tokenizer=tokenizer, **kwargs)
         
-        self.packer = Packer(
+        self.packer = start_end_packer.StartEndPacker(
             start_token_id=tokenizer.cls_token_id,
             end_token_id=tokenizer.sep_token_id,
             pad_value=tokenizer.pad_token_id,
