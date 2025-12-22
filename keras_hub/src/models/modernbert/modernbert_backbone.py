@@ -104,12 +104,12 @@ class ModernBertBackbone(Backbone):
                     name=f"transformer_layer_{i}",
                 )
             )
-            self.final_norm = layers.LayerNormalization(
-                epsilon=layer_norm_epsilon,
-                rms_scaling=True,
-                dtype=dtype,
-                name="final_norm",
-            )
+        self.final_norm = layers.LayerNormalization(
+            epsilon=layer_norm_epsilon,
+            rms_scaling=True,
+            dtype=dtype,
+            name="final_norm",
+        )
 
         # Functional API Call
         token_id_input = keras.Input(shape=(None,), dtype="int32", name="token_ids")
