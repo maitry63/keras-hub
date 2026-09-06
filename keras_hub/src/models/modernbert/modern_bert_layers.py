@@ -37,9 +37,6 @@ class ModernBertMLP(layers.Layer):
         dtype=None,
         **kwargs,
     ):
-        if dtype is None:
-            dtype = keras.config.dtype_policy()
-
         super().__init__(dtype=dtype, **kwargs)
 
         self.hidden_dim = hidden_dim
@@ -74,6 +71,14 @@ class ModernBertMLP(layers.Layer):
         self.wo.build((*input_shape[:-1], self.intermediate_dim))
 
         super().build(input_shape)
+
+    def compute_output_spec(self, x, *args, **kwargs):
+        output_shape = list(x.shape)
+        output_shape[-1] = self.hidden_dim
+        return keras.KerasTensor(
+            shape=output_shape,
+            dtype=self.compute_dtype,
+        )
 
     def call(self, x):
         """Forward pass of the GeGLU MLP layer."""
@@ -139,9 +144,6 @@ class ModernBertAttention(layers.Layer):
         dtype=None,
         **kwargs,
     ):
-        if dtype is None:
-            dtype = keras.config.dtype_policy()
-
         super().__init__(dtype=dtype, **kwargs)
 
         if hidden_dim % num_heads != 0:
@@ -160,20 +162,20 @@ class ModernBertAttention(layers.Layer):
         self.qkv = layers.Dense(
             3 * hidden_dim,
             use_bias=False,
-            dtype=dtype,
+            dtype=self.dtype_policy,
             name="qkv",
         )
 
         self.output_dense = layers.Dense(
             hidden_dim,
             use_bias=False,
-            dtype=dtype,
+            dtype=self.dtype_policy,
             name="output_dense",
         )
 
         self.attn_dropout = layers.Dropout(
             dropout,
-            dtype=dtype,
+            dtype=self.dtype_policy,
             name="attention_dropout",
         )
 
@@ -192,8 +194,8 @@ class ModernBertAttention(layers.Layer):
 
     def _get_sliding_window_mask(self, seq_len, dtype):
         """Return the bidirectional local-attention mask."""
-
         half_window = self.local_attention_window // 2
+
         positions = ops.arange(seq_len)
         distance = ops.abs(positions[:, None] - positions[None, :])
         mask = distance <= half_window
@@ -202,7 +204,6 @@ class ModernBertAttention(layers.Layer):
 
     def _apply_rope(self, x):
         """Apply RotaryEmbedding while preserving [B, H, T, D]."""
-
         batch_size = ops.shape(x)[0]
         num_heads = ops.shape(x)[1]
         seq_len = ops.shape(x)[2]
@@ -228,7 +229,16 @@ class ModernBertAttention(layers.Layer):
             ),
         )
 
-        return x
+        # Ensure RoPE output adheres to the layer's compute_dtype
+        return ops.cast(x, self.compute_dtype)
+
+    def compute_output_spec(self, x, *args, **kwargs):
+        output_shape = list(x.shape)
+        output_shape[-1] = self.hidden_dim
+        return keras.KerasTensor(
+            shape=output_shape,
+            dtype=self.compute_dtype,
+        )
 
     def call(
         self,
@@ -350,10 +360,7 @@ class ModernBertAttention(layers.Layer):
             axis=-1,
         )
 
-        probabilities = ops.cast(
-            probabilities,
-            v.dtype,
-        )
+        probabilities = ops.cast(probabilities, self.compute_dtype)
 
         probabilities = self.attn_dropout(
             probabilities,
@@ -361,10 +368,8 @@ class ModernBertAttention(layers.Layer):
         )
 
         # Attention output
-        output = ops.matmul(
-            probabilities,
-            v,
-        )
+        v = ops.cast(v, self.compute_dtype)
+        output = ops.matmul(probabilities, v)
 
         # [B, H, T, D] -> [B, T, H, D]
         output = ops.transpose(
@@ -385,7 +390,7 @@ class ModernBertAttention(layers.Layer):
         # Output projection
         output = self.output_dense(output)
 
-        return output
+        return ops.cast(output, self.compute_dtype)
 
     def get_config(self):
         config = super().get_config()
@@ -418,7 +423,6 @@ class ModernBertAttention(layers.Layer):
         return cls(**config)
 
 
-@keras.utils.register_keras_serializable(package="keras_hub")
 class ModernBertEncoderLayer(layers.Layer):
     """ModernBERT encoder block.
 
@@ -475,9 +479,6 @@ class ModernBertEncoderLayer(layers.Layer):
         dtype=None,
         **kwargs,
     ):
-        if dtype is None:
-            dtype = keras.config.dtype_policy()
-
         super().__init__(dtype=dtype, **kwargs)
 
         self.hidden_dim = hidden_dim
@@ -546,6 +547,12 @@ class ModernBertEncoderLayer(layers.Layer):
         self.mlp.build(input_shape)
 
         super().build(input_shape)
+
+    def compute_output_spec(self, x, *args, **kwargs):
+        return keras.KerasTensor(
+            shape=x.shape,
+            dtype=self.compute_dtype,
+        )
 
     def call(
         self,

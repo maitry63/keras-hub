@@ -27,10 +27,8 @@ class ModernBertLayersTest(TestCase):
                 "num_heads": 2,
                 "rotary_embedding": RotaryEmbedding(
                     max_wavelength=10000,
-                    dtype="float32",
                 ),
                 "local_attention_window": 128,
-                "dtype": "float32",
             },
             input_data=ops.ones(
                 (2, 4, 16),
@@ -46,7 +44,6 @@ class ModernBertLayersTest(TestCase):
             init_kwargs={
                 "hidden_dim": 16,
                 "intermediate_dim": 32,
-                "dtype": "float32",
             },
             input_data=ops.ones(
                 (2, 4, 16),
@@ -66,10 +63,8 @@ class ModernBertLayersTest(TestCase):
                 "layer_idx": 1,
                 "rotary_embedding": RotaryEmbedding(
                     max_wavelength=10000,
-                    dtype="float32",
                 ),
                 "local_attention_window": 128,
-                "dtype": "float32",
             },
             input_data=ops.ones(
                 (2, 4, 16),
@@ -86,9 +81,7 @@ class ModernBertLayersTest(TestCase):
             local_attention_window=128,
             rotary_embedding=RotaryEmbedding(
                 max_wavelength=10000,
-                dtype="float32",
             ),
-            dtype="float32",
         )
 
         x = ops.ones(
@@ -117,9 +110,7 @@ class ModernBertLayersTest(TestCase):
             local_attention_window=2,
             rotary_embedding=RotaryEmbedding(
                 max_wavelength=10000,
-                dtype="float32",
             ),
-            dtype="float32",
         )
 
         mask = attention._get_sliding_window_mask(
